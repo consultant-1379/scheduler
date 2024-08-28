@@ -1,0 +1,179 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Ericsson Network IQ ETLC scheduler control script for SMF to use
+#
+# Usage: scheduler start|stop
+#
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2007 AB Ericsson Oy  All rights reserved.
+# ----------------------------------------------------------------------
+
+unalias stop 2> /dev/null
+
+. /eniq/home/dcuser/.profile
+
+if [ -z "${CONF_DIR}" ] ; then
+  echo "ERROR: CONF_DIR is not set"
+  exit 1
+fi
+
+. ${CONF_DIR}/niq.rc
+
+# Source the common functions
+if [ -s /eniq/admin/lib/common_functions.lib ]; then
+    . /eniq/admin/lib/common_functions.lib
+else
+    _err_msg_="File /eniq/admin/lib/common_functions.lib not found"
+    abort_script "$_err_msg_"
+fi
+
+. ${BIN_DIR}/common_variables.lib
+
+if [ -s ${CONF_DIR}/dwh.ini ]; then
+  ETLC_USER=`iniget ETLC -v UserName -f ${CONF_DIR}/dwh.ini`
+  HEAP_SIZE=`iniget ETLC -v SchedulerHeap -f ${CONF_DIR}/dwh.ini`
+  START_COUNT=`iniget ETLC -v SchedulerStartCount -f ${CONF_DIR}/dwh.ini`
+  START_DELAY=`iniget ETLC -v SchedulerStartDelay -f ${CONF_DIR}/dwh.ini`
+  STOP_COUNT=`iniget ETLC -v SchedulerStopCount -f ${CONF_DIR}/dwh.ini`
+  STOP_DELAY=`iniget ETLC -v SchedulerStopDelay -f ${CONF_DIR}/dwh.ini`
+else
+  ETLC_USER=`iniget ETLC -v UserName -f ${CONF_DIR}/niq.ini`
+  HEAP_SIZE=`iniget ETLC -v SchedulerHeap -f ${CONF_DIR}/niq.ini`
+  START_COUNT=`iniget ETLC -v SchedulerStartCount -f ${CONF_DIR}/niq.ini`
+  START_DELAY=`iniget ETLC -v SchedulerStartDelay -f ${CONF_DIR}/niq.ini`
+  STOP_COUNT=`iniget ETLC -v SchedulerStopCount -f ${CONF_DIR}/niq.ini`
+  STOP_DELAY=`iniget ETLC -v SchedulerStopDelay -f ${CONF_DIR}/niq.ini`
+fi
+
+
+
+if [ ${LOGNAME} != ${ETLC_USER} ] ; then
+  ${ECHO} "ETLC scheduler must be started as user ${ETLC_USER}"
+  exit 32
+fi
+
+JAVA_HOME="/eniq/sw/runtime/java"
+
+CPATH="${PLATFORM_DIR}"
+
+DIRS=`${LS} ${PLATFORM_DIR}`
+
+for file in ${DIRS}
+do
+  if [ -d ${PLATFORM_DIR}/${file}/dclib ]
+  then
+    JARS=`${LS} ${PLATFORM_DIR}/${file}/dclib/*.jar`
+
+    for jar in ${JARS}
+    do
+      CPATH="${CPATH}:${jar}"
+    done
+  fi
+done
+
+start() {
+
+  if [ ! -d ${LOG_DIR}/scheduler ] ; then
+    ${MKDIR} ${LOG_DIR}/scheduler
+  fi
+
+  LOGFILE=${LOG_DIR}/scheduler/start_scheduler_`date '+%y%m%d_%H%M%S'`.log
+
+  ${ECHO} "Starting ETLC scheduler..." > ${LOGFILE}
+
+  xSCH=`${PS} -ef | ${GREP} java | ${GREP} "pname=ETLCScheduler" | ${NAWK} '{print $2}'`
+  if [ ! -z "${xSCH}" ] ; then
+    ${ECHO} "Killing previous scheduler instance in PID ${xSCH}" >> ${LOGFILE}
+    kill -9 ${xSCH} 2>&1 | tee -a ${LOGFILE}
+    ${ECHO} "Previous scheduler killed" >> ${LOGFILE}
+  fi
+
+  ${JAVA_HOME}/bin/java -d64 -Dpname="ETLCScheduler" -mx${HEAP_SIZE} -Djava.util.logging.config.file=${CONF_DIR}/schedulerLogging.properties -Ddc5000.config.directory=${CONF_DIR} -DLOG_DIR=${LOG_DIR} -classpath ${CPATH} -Djava.rmi.server.codebase="${CODEBASE}" com.distocraft.dc5000.etl.scheduler.Scheduler >> ${LOGFILE} 2>&1 &
+
+  ${ECHO} "scheduler forked" >> ${LOGFILE}
+
+  cnt=0
+
+  while [ ${cnt} -lt ${START_COUNT} ] ; do
+    sleep ${START_DELAY}
+
+    ${ECHO} "Checking scheduler status..." >> ${LOGFILE}
+    ${BIN_DIR}/scheduler status >> ${LOGFILE} 2>&1
+
+    if [ $? -eq 0 ] ; then
+      ${ECHO} "ETLC scheduler succesfully started" >> ${LOGFILE}
+      exit 0     
+    else
+      ${ECHO} "scheduler not started yet" >> ${LOGFILE}
+      let cnt=cnt+1
+    fi
+
+  done
+
+  ${ECHO} "ETLC scheduler failed to start" >> ${LOGFILE}
+
+  exit 55
+
+}
+
+stop() {
+  
+  LOGFILE=${LOG_DIR}/scheduler/stop_scheduler_`date '+%y%m%d_%H%M%S'`.log
+
+  ${ECHO} "Stopping ETLC scheduler..." > ${LOGFILE}
+
+  ${JAVA_HOME}/bin/java -d64 -Dpname="SchedulerAdmin" -mx32M -Djava.util.logging.config.file=${CONF_DIR}/schedulerAdminLogging.properties -Ddc5000.config.directory=${CONF_DIR} -DLOG_DIR=${LOG_DIR} -classpath ${CPATH} -Djava.rmi.server.codebase="${CODEBASE}" com.distocraft.dc5000.etl.scheduler.SchedulerAdmin stop
+
+  ${ECHO} "ETLC scheduler shutdown requested" >> ${LOGFILE}
+
+  cnt=0
+
+  while [ ${cnt} -lt ${STOP_COUNT} ] ; do
+    sleep ${STOP_DELAY}
+
+    ${ECHO} "Checking scheduler status..." >> ${LOGFILE}
+    ePID=`${PS} -ef | ${GREP} java | ${GREP} ETLCScheduler | ${NAWK} '{print $2}'`
+
+    if [ -z "${ePID}" ] ; then
+      ${ECHO} "ETLC scheduler shutdown is complete" >> ${LOGFILE}
+      exit 0
+    else
+      ${ECHO} "scheduler is still running" >> ${LOGFILE}
+      let cnt=cnt+1
+    fi
+
+  done
+
+  ePID=`${PS} -ef | ${GREP} java | ${GREP} ETLCScheduler | ${NAWK} '{print $2}'`
+
+  ${ECHO} "ETLC scheduler refused to stop trying to kill it." >> ${LOGFILE}
+
+  if [ ! -z "${ePID}" ] ; then
+    kill -9 ${ePID}
+    ${ECHO} "ETLC scheduler killed." >> ${LOGFILE}
+  else
+    ${ECHO} "ELTC scheduler was dead before killing" >> ${LOGFILE}
+  fi
+
+  exit 0
+
+}
+
+#getting codebase
+COMMON_JAR=`${LS} ${PLATFORM_DIR}/common*/dclib/common.jar`
+LICENSING_JAR=`${LS} ${PLATFORM_DIR}/licensing*/dclib/licensing.jar`
+SCHEDULER_JAR=`${LS} ${PLATFORM_DIR}/scheduler*/dclib/scheduler.jar`
+ENGINE_JAR=`${LS} ${PLATFORM_DIR}/engine*/dclib/engine.jar`
+CODEBASE="file://${SCHEDULER_JAR} file://${COMMON_JAR} file://${ENGINE_JAR} file://${LICENSING_JAR}"
+case "$1" in
+start)
+      start
+      ;;
+stop)
+     stop
+     ;;
+*)
+     ${ECHO} "This script shall only be used by SMF!"
+     exit 10
+     ;;
+esac

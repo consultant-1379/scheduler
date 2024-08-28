@@ -1,0 +1,90 @@
+ <project name="install" basedir="." default="all">
+
+	<property name="dcinstall.require.repository" value="> 5-0-0b218" />
+
+	<target name="install" depends="copyTmpToDeploy">
+
+		<trycatch property="msg1">
+			<try>
+				<forcedelete file="${dc.bin.dir}/scheduler" />
+			</try>
+			<catch />
+		</trycatch>
+
+		<mkdir dir="${dc.log.dir}/scheduler" />
+
+		<copy file="${dc.installer.dir}/tmp/bin/scheduler" toFile="${dc.bin.dir}/scheduler" />
+		<chmod perm="740" file="${dc.bin.dir}/scheduler" />
+
+		<if>
+			<available file="${dc.admin.bin}/scheduler" />
+			<then>
+				<delete file="${dc.admin.bin}/scheduler" />
+			</then>
+		</if>
+
+		<copy file="${dc.installer.dir}/tmp/smf/scheduler" toFile="${dc.admin.bin}/scheduler" />
+		<chmod perm="740" file="${dc.admin.bin}/scheduler" />
+
+		<if>
+			<available file="${dc.conf.dir}/schedulerLogging.properties" />
+			<then />
+			<else>
+				<copy file="${dc.installer.dir}/tmp/conf/schedulerLogging.properties" toFile="${dc.conf.dir}/schedulerLogging.properties" />
+			</else>
+		</if>
+
+		<if>
+			<available file="${dc.conf.dir}/schedulerAdminLogging.properties" />
+			<then />
+			<else>
+				<copy file="${dc.installer.dir}/tmp/conf/schedulerAdminLogging.properties" toFile="${dc.conf.dir}/schedulerAdminLogging.properties" />
+			</else>
+		</if>
+
+		<if>
+			<available file="${dc.installer.dir}/install/DSTSchedulingFix" />
+			<then />
+			<else>
+				<echo message="Fixing over 1 hour interval schedulings for different DST" />
+				<IntervalDSTModifier />
+				<mkdir dir="${dc.installer.dir}/install" />
+				<touch file="${dc.installer.dir}/install/DSTSchedulingFix" />
+				<chmod perm="ugo-wx" file="${dc.installer.dir}/install/DSTSchedulingFix" />
+				<exec executable="scheduler" outputproperty="isRunning">
+					<arg line="status" />
+				</exec>
+				<if>
+					<isset property="isRunning" />
+					<then>
+						<if>
+							<contains string="${isRunning}" substring="scheduler is running OK" />
+							<then>
+								<exec executable="scheduler">
+									<arg line="restart" />
+								</exec>
+							</then>
+						</if>
+					</then>
+				</if>
+			</else>
+		</if>
+
+		<if>
+  		  <available file="${dc.runtime.dir}/tomcat/webapps/techpackide/lib/scheduler.jar"/>
+  		  <then>
+  			<delete file="${dc.runtime.dir}/tomcat/webapps/techpackide/lib/scheduler.jar"/>
+			<copy todir="${dc.runtime.dir}/tomcat/webapps/techpackide/lib" flatten="true">
+				<fileset dir="${dc.platform.dir}">
+  					<include name="**/dclib/scheduler.jar"/>
+  				</fileset>
+  			</copy>
+  		  </then>
+  		  <else/>
+  	    </if>
+		
+	</target>
+
+	<target name="update" depends="moveToObsolete,install" />
+
+</project>

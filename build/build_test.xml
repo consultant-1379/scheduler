@@ -1,0 +1,38 @@
+<project name="scheduler" default="test_all">
+    <property name="module.name" value="scheduler"/>
+    <property file="${user.home}/EniqBuild/BH/build.properties"/>
+    <property name="ant.common" value="${cc.base}/tools/ant_common"/>
+    <property file="${ant.common}/common.properties"/>
+    <property name="module.base" value="${module.scheduler.base}"/>
+    <property name="module.build" value="${module.scheduler.build}"/>
+    <property name="module.dependants" value="${module.scheduler.dependants}"/>
+    <import file="${ant.common}/common.xml"/>
+    <property name="tests.to.run" value="**/*Test.class"/>
+    <property name="common.src" value="${module.common_utilities.base}/src"/>
+    <property name="common.cls" value="${module.build}/common"/>
+	<property name="tests.to.exclude"
+            value="**/com/distocraft/dc5000/etl/scheduler/SchedulerTest.class"/>
+			
+    <property name="mods.needed" value="common_utilities, repository"/>
+	
+		<path id="common_cp">         	
+		<path refid="plaform.lib.classpath"/>
+        <path location="${module.repository.pkg}"/>
+        <path location="${module.licensing.pkg}"/>
+    </path>
+	 <path id="scheduler.lib.classpath">
+     	<path refid="plaform.lib.classpath"/>
+		<path location="${module.build}/common"/>	 	  
+		<path location="${module.repository.pkg}"/>		
+	 </path>
+	 <path id="scheduler.test.classpath">
+		 <path refid="platform.test.classpath"/>
+		 <path refid="scheduler.lib.classpath"/>		
+	 </path>
+	    <target name="pre_compile">
+		<echo message="Recompiling common_utilities to remove signer info (easymock doesnt like it....)"/>
+		<delete dir="${common.cls}" verbose="false"/>
+		<mkdir dir="${common.cls}"/>
+		<mcompile destdir="${common.cls}" srcpath="${common.src}" classpathref="common_cp" include="**/*.java"/>		
+	</target>
+</project>

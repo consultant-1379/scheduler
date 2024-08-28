@@ -1,0 +1,126 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Ericsson Network IQ ETLC scheduler control script
+#
+# Usage: scheduler start|stop|restart|status|activate|hold
+#
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2007 AB Ericsson Oy  All rights reserved.
+# ----------------------------------------------------------------------
+
+unalias stop 2> /dev/null
+
+. /eniq/home/dcuser/.profile
+
+if [ ${LOGNAME} != "dcuser"  ] ; then
+  echo "This script must be executed as dcuser"
+  exit 32
+fi
+
+if [ -z "$CONF_DIR" ] ; then
+  echo "ERROR: CONF_DIR is not set"
+  exit 1
+fi
+
+. ${CONF_DIR}/niq.rc
+. ${BIN_DIR}/common_variables.lib
+
+JAVA_HOME="/eniq/sw/runtime/java"
+
+CPATH="${PLATFORM_DIR}"
+
+DIRS=`${LS} ${PLATFORM_DIR} | ${GREP} -v mediator-R*`
+
+for file in ${DIRS}
+do
+  if [ -d ${PLATFORM_DIR}/${file}/dclib ]
+  then
+    JARS=`${LS} ${PLATFORM_DIR}/${file}/dclib/*.jar`
+
+    for jar in ${JARS}
+    do
+      CPATH="${CPATH}:${jar}"
+    done
+  fi
+done
+
+start() {
+  if [ -s ${SMF_BIN_DIR}/eniq_service_start_stop.bsh ]; then
+    ${SMF_BIN_DIR}/eniq_service_start_stop.bsh -s scheduler -a start
+  else
+  	${ADMIN_BIN}/eniq_service_start_stop.bsh -s scheduler -a start
+  fi
+}
+
+stop() {
+  if [ -s ${SMF_BIN_DIR}/eniq_service_start_stop.bsh ]; then
+    ${SMF_BIN_DIR}/eniq_service_start_stop.bsh -s scheduler -a stop
+  else
+  	${ADMIN_BIN}/eniq_service_start_stop.bsh -s scheduler -a stop
+  fi
+}
+
+eexecute() {
+
+  ${JAVA_HOME}/bin/java -d64 -Dpname="SchedulerAdmin" -mx32M -Djava.util.logging.config.file=${CONF_DIR}/schedulerAdminLogging.properties -Ddc5000.config.directory=${CONF_DIR} -DLOG_DIR=${LOG_DIR} -classpath ${CPATH} -Djava.rmi.server.codebase="${CODEBASE}" com.distocraft.dc5000.etl.scheduler.SchedulerAdmin ${CMD} ${X1} ${X2} ${X3} ${X4}
+
+  ECODE=$?
+
+  if [ "${CMD}" != "-e" ] ; then 
+    if [ ${ECODE} -eq 0 ] ; then
+      ${ECHO} "scheduler is running OK"
+    else
+      ${ECHO} "scheduler is not running"
+    fi
+  fi
+
+  
+  exit ${ECODE}
+}
+
+
+#getting codebase
+COMMON_JAR=`${LS} ${PLATFORM_DIR}/common*/dclib/common.jar`
+LICENSING_JAR=`${LS} ${PLATFORM_DIR}/licensing*/dclib/licensing.jar`
+SCHEDULER_JAR=`${LS} ${PLATFORM_DIR}/scheduler*/dclib/scheduler.jar`
+ENGINE_JAR=`${LS} ${PLATFORM_DIR}/engine*/dclib/engine.jar`
+CODEBASE="file://${SCHEDULER_JAR} file://${COMMON_JAR} file://${ENGINE_JAR} file://${LICENSING_JAR}"
+case "$1" in
+start)
+      start
+      ;;
+stop)
+     stop
+     ;;
+restart)
+     stop
+     start
+     ;;
+status)
+     CMD="status"
+     eexecute
+     ;;
+activate)
+     CMD="activate"
+     eexecute
+     ;;
+hold)
+     CMD="hold"
+     eexecute
+     ;;
+     
+-e)
+     CMD="-e"
+     X1=$2
+     X2=$3
+     X3=$4
+     X4=$5
+     eexecute
+     ;;     
+     
+     
+*)
+     ${ECHO} "Usage: scheduler start|stop|restart|status|activate|hold"
+     exit 10
+     ;;
+esac
